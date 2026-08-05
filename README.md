@@ -1,4 +1,4 @@
-# Instacart Market Basket Analysis & SQL Portfolio
+# Instacart Market Basket Analysis
 
 ## Project Overview
 This project transforms a massive, raw relational database of grocery orders into actionable business insights. Using advanced PostgreSQL techniques and Power BI, this repository demonstrates an end-to-end data pipeline designed to answer critical business questions regarding customer loyalty, product volume, and purchasing affinity.
