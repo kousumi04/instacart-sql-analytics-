@@ -1,0 +1,7 @@
+# Ignore raw data files
+data/
+*.csv
+
+# Ignore OS generated files
+.DS_Store
+Thumbs.db
