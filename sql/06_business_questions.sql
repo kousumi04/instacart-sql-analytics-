@@ -846,3 +846,160 @@ GROUP BY
     d.department
 ORDER BY 
     total_first_time_purchases DESC;
+
+
+-- Business Question 39: Product Naming Convention (Does Length Matter?)
+-- Business Objective: Determine if products with shorter, punchier names sell better than products with long, highly descriptive names.
+WITH NameLengths AS (
+    SELECT 
+        p.product_id,
+        CASE 
+            WHEN LENGTH(p.product_name) < 15 THEN '1. Short (<15 chars)'
+            WHEN LENGTH(p.product_name) BETWEEN 15 AND 30 THEN '2. Medium (15-30 chars)'
+            ELSE '3. Long (>30 chars)'
+        END AS name_length_category
+    FROM products p
+)
+SELECT 
+    nl.name_length_category,
+    COUNT(op.product_id) AS total_items_sold
+FROM order_products op
+INNER JOIN NameLengths nl 
+    ON op.product_id = nl.product_id
+GROUP BY 
+    nl.name_length_category
+ORDER BY 
+    nl.name_length_category ASC;
+
+
+-- Business Question 40: Weekend Stock-Up vs. Weekday Top-Up (Direct Comparison)
+-- Business Objective: Directly compare the average basket size of weekend trips versus weekday trips to inform dynamic delivery pricing (surge pricing on heavy weekends).
+WITH OrderSizes AS (
+    SELECT 
+        o.order_id,
+        o.order_dow,
+        COUNT(op.product_id) AS cart_size
+    FROM orders o
+    INNER JOIN order_products op 
+        ON o.order_id = op.order_id
+    GROUP BY 
+        o.order_id, 
+        o.order_dow
+)
+SELECT 
+    CASE 
+        WHEN order_dow IN (0, 1) THEN '1. Weekend (Sun/Mon)'
+        ELSE '2. Weekday'
+    END AS part_of_week,
+    ROUND(AVG(cart_size), 2) AS avg_cart_size,
+    COUNT(order_id) AS total_trips
+FROM OrderSizes
+GROUP BY 
+    part_of_week
+ORDER BY 
+    part_of_week ASC;
+
+
+-- Business Question 41: The "Trust" Timeline (Department Trial Order)
+-- Business Objective: Analyze the average order number at which a user first tries a department. Produce might be bought on Order 1, but Alcohol or Pets might require a user to build trust with the app over several orders.
+WITH FirstDepartmentPurchase AS (
+    SELECT 
+        o.user_id,
+        d.department,
+        MIN(o.order_number) AS first_order_number_tried
+    FROM orders o
+    INNER JOIN order_products op 
+        ON o.order_id = op.order_id
+    INNER JOIN products p 
+        ON op.product_id = p.product_id
+    INNER JOIN departments d 
+        ON p.department_id = d.department_id
+    GROUP BY 
+        o.user_id, 
+        d.department
+)
+SELECT 
+    department,
+    ROUND(AVG(first_order_number_tried), 2) AS avg_order_number_at_first_trial
+FROM FirstDepartmentPurchase
+GROUP BY 
+    department
+ORDER BY 
+    avg_order_number_at_first_trial ASC;
+
+
+-- Business Question 42: The "Whale" Carts (Ultra-High Volume Trips)
+-- Business Objective: Analyze the composition of massive stock-up trips (50+ items) to see which departments dominate these highly profitable, high-effort orders.
+WITH WhaleOrders AS (
+    SELECT 
+        order_id
+    FROM order_products
+    GROUP BY 
+        order_id
+    HAVING 
+        COUNT(product_id) >= 50
+)
+SELECT 
+    d.department,
+    COUNT(op.product_id) AS items_in_whale_carts
+FROM WhaleOrders wo
+INNER JOIN order_products op 
+    ON wo.order_id = op.order_id
+INNER JOIN products p 
+    ON op.product_id = p.product_id
+INNER JOIN departments d 
+    ON p.department_id = d.department_id
+GROUP BY 
+    d.department
+ORDER BY 
+    items_in_whale_carts DESC
+LIMIT 10;
+
+
+-- Business Question 43: Aisle-Level Loyalty (The "Must-Haves")
+-- Business Objective: Step past the broad departments and find the top 10 specific aisles with the highest reorder rates. We filter for aisles with at least 5,000 sales to ensure statistical significance.
+SELECT 
+    a.aisle,
+    COUNT(op.product_id) AS total_items_sold,
+    ROUND(AVG(op.reordered) * 100, 2) AS reorder_rate_percentage
+FROM order_products op
+INNER JOIN products p 
+    ON op.product_id = p.product_id
+INNER JOIN aisles a 
+    ON p.aisle_id = a.aisle_id
+GROUP BY 
+    a.aisle
+HAVING 
+    COUNT(op.product_id) > 5000
+ORDER BY 
+    reorder_rate_percentage DESC
+LIMIT 10;
+
+
+-- Business Question 44: Department Cart Penetration
+-- Business Objective: Calculate what percentage of ALL shopping trips contain at least one item from each department. This measures universal appeal versus niche appeal.
+WITH TotalOrders AS (
+    SELECT 
+        COUNT(DISTINCT order_id) AS total_order_count 
+    FROM orders
+),
+DepartmentPresence AS (
+    SELECT 
+        d.department,
+        COUNT(DISTINCT op.order_id) AS orders_containing_department
+    FROM order_products op
+    INNER JOIN products p 
+        ON op.product_id = p.product_id
+    INNER JOIN departments d 
+        ON p.department_id = d.department_id
+    GROUP BY 
+        d.department
+)
+SELECT 
+    dp.department,
+    dp.orders_containing_department,
+    ROUND((dp.orders_containing_department::NUMERIC / t.total_order_count) * 100, 2) AS cart_penetration_percentage
+FROM DepartmentPresence dp
+CROSS JOIN TotalOrders t
+ORDER BY 
+    cart_penetration_percentage DESC;
