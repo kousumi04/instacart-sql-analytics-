@@ -2,6 +2,13 @@
 data/
 *.csv
 
+# Ignore local development and generated artifacts
+.vscode/
+venv/
+__pycache__/
+*.py[cod]
+models/*.pkl
+
 # Ignore OS generated files
 .DS_Store
-Thumbs.db
+Thumbs.db0
