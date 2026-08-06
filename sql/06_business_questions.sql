@@ -423,3 +423,222 @@ GROUP BY
     d.department
 ORDER BY 
     reorder_dependency_percentage DESC;
+
+
+-- Business Question 21: Top Product per Department (Category Champions)
+-- Business Objective: Find the absolute best-selling single product within every individual department using ranking functions.
+WITH RankedProducts AS (
+    SELECT 
+        d.department,
+        p.product_name,
+        COUNT(op.product_id) AS total_sold,
+        ROW_NUMBER() OVER(PARTITION BY d.department ORDER BY COUNT(op.product_id) DESC) as sales_rank
+    FROM order_products op
+    INNER JOIN products p 
+        ON op.product_id = p.product_id
+    INNER JOIN departments d 
+        ON p.department_id = d.department_id
+    GROUP BY 
+        d.department, 
+        p.product_name
+)
+SELECT 
+    department,
+    product_name AS top_selling_product,
+    total_sold
+FROM RankedProducts
+WHERE 
+    sales_rank = 1
+ORDER BY 
+    total_sold DESC;
+
+
+-- Business Question 22: Department Market Share (Percentage of Total Volume)
+-- Business Objective: Calculate exactly what percentage of the company's total item volume is driven by each department, without writing separate queries for the numerator and denominator.
+WITH DepartmentVolume AS (
+    SELECT 
+        d.department,
+        COUNT(op.product_id) AS items_sold
+    FROM order_products op
+    INNER JOIN products p 
+        ON op.product_id = p.product_id
+    INNER JOIN departments d 
+        ON p.department_id = d.department_id
+    GROUP BY 
+        d.department
+)
+SELECT 
+    department,
+    items_sold,
+    SUM(items_sold) OVER() AS company_total_items,
+    ROUND((items_sold::NUMERIC / SUM(items_sold) OVER()) * 100, 2) AS market_share_percentage
+FROM DepartmentVolume
+ORDER BY 
+    market_share_percentage DESC;
+
+
+-- Business Question 23: Rolling 3-Hour Order Volume (Time-Series Smoothing)
+-- Business Objective: Smooth out the hourly order data using a rolling average to better visualize broader traffic trends throughout the day, ignoring brief one-hour spikes.
+WITH HourlyOrders AS (
+    SELECT 
+        order_hour_of_day,
+        COUNT(order_id) AS total_orders
+    FROM orders
+    GROUP BY 
+        order_hour_of_day
+)
+SELECT 
+    order_hour_of_day,
+    total_orders AS absolute_orders,
+    ROUND(AVG(total_orders) OVER(
+        ORDER BY order_hour_of_day 
+        ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+    ), 2) AS rolling_3_hour_avg
+FROM HourlyOrders
+ORDER BY 
+    order_hour_of_day ASC;
+
+
+-- Business Question 24: User's Favorite Product (Personalized Recommendations)
+-- Business Objective: Determine the single most frequently purchased item for each individual user. This is the exact logic used to populate a "Buy it Again" widget on the homepage.
+WITH UserProductCounts AS (
+    SELECT 
+        o.user_id,
+        p.product_name,
+        COUNT(op.product_id) AS times_bought,
+        ROW_NUMBER() OVER(PARTITION BY o.user_id ORDER BY COUNT(op.product_id) DESC) as user_rank
+    FROM orders o
+    INNER JOIN order_products op 
+        ON o.order_id = op.order_id
+    INNER JOIN products p 
+        ON op.product_id = p.product_id
+    GROUP BY 
+        o.user_id, 
+        p.product_name
+)
+SELECT 
+    user_id,
+    product_name AS favorite_product,
+    times_bought
+FROM UserProductCounts
+WHERE 
+    user_rank = 1
+ORDER BY 
+    user_id ASC
+LIMIT 20; -- Limited to 20 just for visual inspection in pgAdmin
+
+
+-- Business Question 25: The "Weekend Warrior" Departments (Weekend vs Weekday Ratio)
+-- Business Objective: Identify which departments experience the biggest surge in volume on weekends compared to weekdays, helping marketing plan push notification schedules.
+WITH DayTypeVolume AS (
+    SELECT 
+        d.department,
+        CASE 
+            WHEN o.order_dow IN (0, 1) THEN 'Weekend' 
+            ELSE 'Weekday' 
+        END AS day_type,
+        COUNT(op.product_id) AS items_sold
+    FROM orders o
+    INNER JOIN order_products op 
+        ON o.order_id = op.order_id
+    INNER JOIN products p 
+        ON op.product_id = p.product_id
+    INNER JOIN departments d 
+        ON p.department_id = d.department_id
+    GROUP BY 
+        d.department, 
+        day_type
+)
+SELECT 
+    department,
+    SUM(CASE WHEN day_type = 'Weekend' THEN items_sold ELSE 0 END) AS weekend_sales,
+    SUM(CASE WHEN day_type = 'Weekday' THEN items_sold ELSE 0 END) AS weekday_sales,
+    ROUND(SUM(CASE WHEN day_type = 'Weekend' THEN items_sold ELSE 0 END)::NUMERIC / 
+          NULLIF(SUM(CASE WHEN day_type = 'Weekday' THEN items_sold ELSE 0 END), 0), 2) AS weekend_to_weekday_ratio
+FROM DayTypeVolume
+GROUP BY 
+    department
+ORDER BY 
+    weekend_to_weekday_ratio DESC;
+
+
+-- Business Question 26: The "Heavy Lifters" (Top 1% of Customers)
+-- Business Objective: Segment our user base into 100 equal percentiles based on total volume purchased. Filter for the 1st percentile to identify our VIP "Heavy Lifters" for exclusive rewards.
+WITH UserVolumes AS (
+    SELECT 
+        o.user_id,
+        COUNT(op.product_id) AS total_items_bought,
+        NTILE(100) OVER(ORDER BY COUNT(op.product_id) DESC) as volume_percentile
+    FROM orders o
+    INNER JOIN order_products op 
+        ON o.order_id = op.order_id
+    GROUP BY 
+        o.user_id
+)
+SELECT 
+    user_id,
+    total_items_bought
+FROM UserVolumes
+WHERE 
+    volume_percentile = 1
+ORDER BY 
+    total_items_bought DESC
+LIMIT 20; -- Limited to 20 just for visual inspection
+
+
+-- Business Question 27: Aisle Diversity (Exploration Metric)
+-- Business Objective: Determine how much users explore the store by calculating the average number of unique aisles visited per order. Are they laser-focused or browsing?
+WITH AisleCounts AS (
+    SELECT 
+        op.order_id,
+        COUNT(DISTINCT p.aisle_id) AS unique_aisles
+    FROM order_products op
+    INNER JOIN products p 
+        ON op.product_id = p.product_id
+    GROUP BY 
+        op.order_id
+)
+SELECT 
+    ROUND(AVG(unique_aisles), 2) AS avg_unique_aisles_per_order,
+    MAX(unique_aisles) AS max_unique_aisles_in_one_order
+FROM AisleCounts;
+
+
+-- Business Question 28: Routine by Time of Day
+-- Business Objective: Discover if users stick to their routines (high reorder rate) more strictly in the early morning versus the evening when they might have more time to browse for new items.
+SELECT 
+    CASE 
+        WHEN o.order_hour_of_day BETWEEN 6 AND 11 THEN '1. Morning (6AM - 11AM)'
+        WHEN o.order_hour_of_day BETWEEN 12 AND 16 THEN '2. Afternoon (12PM - 4PM)'
+        WHEN o.order_hour_of_day BETWEEN 17 AND 22 THEN '3. Evening (5PM - 10PM)'
+        ELSE '4. Night (11PM - 5AM)'
+    END AS time_of_day,
+    COUNT(op.product_id) AS total_items,
+    ROUND(AVG(op.reordered) * 100, 2) AS reorder_rate_percentage
+FROM orders o
+INNER JOIN order_products op 
+    ON o.order_id = op.order_id
+GROUP BY 
+    time_of_day
+ORDER BY 
+    time_of_day ASC;
+
+
+-- Business Question 29: Return Trip Velocity by Department
+-- Business Objective: Identify which departments drive the fastest return trips to the app by averaging the days_since_prior_order for items in each department.
+SELECT 
+    d.department,
+    ROUND(AVG(o.days_since_prior_order), 2) AS avg_days_between_orders
+FROM orders o
+INNER JOIN order_products op 
+    ON o.order_id = op.order_id
+INNER JOIN products p 
+    ON op.product_id = p.product_id
+INNER JOIN departments d 
+    ON p.department_id = d.department_id
+WHERE 
+    o.days_since_prior_order IS NOT NULL
+GROUP BY 
+    d.department
+ORDER BY 
+    avg_days_between_orders ASC;
