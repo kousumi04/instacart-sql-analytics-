@@ -1059,3 +1059,78 @@ GROUP BY
     d.department
 ORDER BY 
     items_in_first_orders DESC;
+
+
+-- Business Question 48: User Retention Drop-off (Order Frequency Distribution)
+-- Business Objective: Discover exactly how many users churn after their 1st, 2nd, or 3rd order. This identifies the exact moment the company needs to send aggressive retention offers.
+WITH UserMaxOrders AS (
+    SELECT 
+        user_id,
+        MAX(order_number) AS total_orders_made
+    FROM orders
+    GROUP BY 
+        user_id
+)
+SELECT 
+    total_orders_made,
+    COUNT(user_id) AS total_users
+FROM UserMaxOrders
+GROUP BY 
+    total_orders_made
+ORDER BY 
+    total_orders_made ASC
+LIMIT 15;
+
+
+-- Business Question 49: Basket Size vs. Discovery Correlation
+-- Business Objective: Test the hypothesis that larger shopping carts lead to more product discovery (lower overall reorder rates) because users feel comfortable throwing in new items when buying in bulk.
+WITH OrderSizes AS (
+    SELECT 
+        order_id,
+        COUNT(product_id) AS cart_size,
+        AVG(reordered) AS order_reorder_rate
+    FROM order_products
+    GROUP BY 
+        order_id
+),
+CartBuckets AS (
+    SELECT 
+        CASE 
+            WHEN cart_size <= 5 THEN '1. Small (1-5)'
+            WHEN cart_size <= 15 THEN '2. Medium (6-15)'
+            WHEN cart_size <= 30 THEN '3. Large (16-30)'
+            ELSE '4. Jumbo (31+)'
+        END AS size_bucket,
+        order_reorder_rate
+    FROM OrderSizes
+)
+SELECT 
+    size_bucket,
+    COUNT(*) AS total_orders,
+    ROUND(AVG(order_reorder_rate) * 100, 2) AS avg_reorder_percentage
+FROM CartBuckets
+GROUP BY 
+    size_bucket
+ORDER BY 
+    size_bucket ASC;
+
+
+-- Business Question 50: The Master Product Leaderboard
+-- Business Objective: The ultimate multi-metric view. For the top 50 most popular products, show their total volume, how loyal their buyers are, and exactly where they land in the average shopping cart.
+SELECT 
+    p.product_name,
+    d.department,
+    COUNT(op.product_id) AS total_volume_sold,
+    ROUND(AVG(op.reordered) * 100, 2) AS reorder_loyalty_percentage,
+    ROUND(AVG(op.add_to_cart_order), 2) AS avg_cart_placement
+FROM order_products op
+INNER JOIN products p 
+    ON op.product_id = p.product_id
+INNER JOIN departments d 
+    ON p.department_id = d.department_id
+GROUP BY 
+    p.product_name,
+    d.department
+ORDER BY 
+    total_volume_sold DESC
+LIMIT 50;    
