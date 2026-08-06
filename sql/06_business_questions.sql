@@ -642,3 +642,207 @@ GROUP BY
     d.department
 ORDER BY 
     avg_days_between_orders ASC;
+
+
+-- Business Question 30: The "Autopilot" Shopper (100% Reorder Baskets)
+-- Business Objective: Identify how many shopping trips are strictly habitual (every single item in the cart is a reorder) and see which day of the week these autopilot trips peak.
+WITH OrderReorderStats AS (
+    SELECT 
+        o.order_id,
+        o.order_dow,
+        MIN(op.reordered) AS min_reorder_flag,
+        MAX(op.reordered) AS max_reorder_flag
+    FROM orders o
+    INNER JOIN order_products op 
+        ON o.order_id = op.order_id
+    GROUP BY 
+        o.order_id,
+        o.order_dow
+)
+SELECT 
+    order_dow AS day_of_week,
+    COUNT(order_id) AS total_autopilot_orders
+FROM OrderReorderStats
+WHERE 
+    min_reorder_flag = 1 
+    AND max_reorder_flag = 1
+GROUP BY 
+    order_dow
+ORDER BY 
+    total_autopilot_orders DESC;
+
+
+-- Business Question 31: Department Footprint per Basket
+-- Business Objective: When a user buys from the 'Produce' department, how many different produce items do they usually buy at once? This helps UI designers allocate screen space for upselling.
+WITH DepartmentBasketCounts AS (
+    SELECT 
+        op.order_id,
+        d.department,
+        COUNT(op.product_id) AS items_from_department
+    FROM order_products op
+    INNER JOIN products p 
+        ON op.product_id = p.product_id
+    INNER JOIN departments d 
+        ON p.department_id = d.department_id
+    GROUP BY 
+        op.order_id, 
+        d.department
+)
+SELECT 
+    department,
+    ROUND(AVG(items_from_department), 2) AS avg_items_per_order
+FROM DepartmentBasketCounts
+GROUP BY 
+    department
+ORDER BY 
+    avg_items_per_order DESC;
+
+
+-- Business Question 32: The "Deep Scroll" Products
+-- Business Objective: Identify products that are frequently buried at the very bottom of massive carts (average add_to_cart_order > 15). We filter for items ordered at least 1,000 times to ensure this isn't a fluke.
+SELECT 
+    p.product_name,
+    COUNT(op.product_id) AS total_orders,
+    ROUND(AVG(op.add_to_cart_order), 2) AS avg_cart_position
+FROM order_products op
+INNER JOIN products p 
+    ON op.product_id = p.product_id
+GROUP BY 
+    p.product_name
+HAVING 
+    COUNT(op.product_id) > 1000 
+    AND AVG(op.add_to_cart_order) > 15
+ORDER BY 
+    avg_cart_position DESC
+LIMIT 10;
+
+
+-- Business Question 33: Cumulative Daily Order Volume (Running Total)
+-- Business Objective: Track how order volume accumulates hour-by-hour throughout the day to help operations and server routing teams plan for capacity.
+WITH HourlyCount AS (
+    SELECT 
+        order_hour_of_day,
+        COUNT(order_id) AS total_orders
+    FROM orders
+    GROUP BY 
+        order_hour_of_day
+)
+SELECT 
+    order_hour_of_day,
+    total_orders AS absolute_orders,
+    SUM(total_orders) OVER(ORDER BY order_hour_of_day ASC) AS running_total_orders
+FROM HourlyCount
+ORDER BY 
+    order_hour_of_day ASC;
+
+
+-- Business Question 34: Single-Department Baskets
+-- Business Objective: Identify which departments are most likely to be the *only* department a user shops from during a trip (e.g., exclusively buying pet supplies or alcohol).
+WITH DepartmentCounts AS (
+    SELECT 
+        op.order_id,
+        COUNT(DISTINCT p.department_id) AS distinct_departments,
+        MAX(d.department) AS department_name
+    FROM order_products op
+    INNER JOIN products p 
+        ON op.product_id = p.product_id
+    INNER JOIN departments d 
+        ON p.department_id = d.department_id
+    GROUP BY 
+        op.order_id
+)
+SELECT 
+    department_name,
+    COUNT(order_id) AS single_department_trips
+FROM DepartmentCounts
+WHERE 
+    distinct_departments = 1
+GROUP BY 
+    department_name
+ORDER BY 
+    single_department_trips DESC;
+
+
+-- Business Question 35: Reorder Rate by Hour of Day
+-- Business Objective: Pinpoint the exact hours when users are strictly restocking (high reorder rate) versus hours when they are exploring and adding new items (low reorder rate).
+SELECT 
+    o.order_hour_of_day,
+    COUNT(op.product_id) AS total_items,
+    ROUND(AVG(op.reordered) * 100, 2) AS reorder_rate_percentage
+FROM orders o
+INNER JOIN order_products op 
+    ON o.order_id = op.order_id
+GROUP BY 
+    o.order_hour_of_day
+ORDER BY 
+    o.order_hour_of_day ASC;
+
+
+-- Business Question 36: Market Basket Analysis (The Banana Affinity)
+-- Business Objective: 'Banana' is the platform's best-selling item. What are the top 5 products most frequently bought in the exact same cart as a Banana?
+WITH BananaOrders AS (
+    SELECT 
+        op.order_id 
+    FROM order_products op
+    INNER JOIN products p 
+        ON op.product_id = p.product_id
+    WHERE 
+        p.product_name = 'Banana'
+)
+SELECT 
+    p.product_name AS bought_with_banana,
+    COUNT(op.order_id) AS times_bought_together
+FROM BananaOrders bo
+INNER JOIN order_products op 
+    ON bo.order_id = op.order_id
+INNER JOIN products p 
+    ON op.product_id = p.product_id
+WHERE 
+    p.product_name != 'Banana' -- Exclude the banana itself from the results
+GROUP BY 
+    p.product_name
+ORDER BY 
+    times_bought_together DESC
+LIMIT 5;
+
+
+-- Business Question 37: Average Cart Size by Hour of Day
+-- Business Objective: Determine if late-night shoppers are making massive stock-up runs or just buying a few quick emergency items compared to daytime shoppers.
+WITH OrderSizes AS (
+    SELECT 
+        o.order_id,
+        o.order_hour_of_day,
+        COUNT(op.product_id) AS cart_size
+    FROM orders o
+    INNER JOIN order_products op 
+        ON o.order_id = op.order_id
+    GROUP BY 
+        o.order_id,
+        o.order_hour_of_day
+)
+SELECT 
+    order_hour_of_day,
+    ROUND(AVG(cart_size), 2) AS avg_items_per_cart
+FROM OrderSizes
+GROUP BY 
+    order_hour_of_day
+ORDER BY 
+    order_hour_of_day ASC;
+
+
+-- Business Question 38: The "Discovery" Departments (First-Time Purchases)
+-- Business Objective: Calculate the absolute volume of "First-Time Purchases" (where the item has never been bought by that user before) to see which departments drive product discovery.
+SELECT 
+    d.department,
+    COUNT(op.product_id) AS total_first_time_purchases
+FROM order_products op
+INNER JOIN products p 
+    ON op.product_id = p.product_id
+INNER JOIN departments d 
+    ON p.department_id = d.department_id
+WHERE 
+    op.reordered = 0
+GROUP BY 
+    d.department
+ORDER BY 
+    total_first_time_purchases DESC;
