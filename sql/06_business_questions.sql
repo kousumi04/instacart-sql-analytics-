@@ -1003,3 +1003,59 @@ FROM DepartmentPresence dp
 CROSS JOIN TotalOrders t
 ORDER BY 
     cart_penetration_percentage DESC;
+
+
+-- Business Question 45: Reorder Gap Analysis
+-- Business Objective: Determine the average wait time before a customer reorders from a specific department. This helps set the timing for automated email reminders.
+SELECT 
+    d.department,
+    ROUND(AVG(o.days_since_prior_order), 2) AS avg_days_to_reorder
+FROM orders o
+INNER JOIN order_products op 
+    ON o.order_id = op.order_id
+INNER JOIN products p 
+    ON op.product_id = p.product_id
+INNER JOIN departments d 
+    ON p.department_id = d.department_id
+WHERE 
+    op.reordered = 1 
+    AND o.days_since_prior_order IS NOT NULL
+GROUP BY 
+    d.department
+ORDER BY 
+    avg_days_to_reorder ASC;
+
+
+-- Business Question 46: Order Volume Traffic Matrix (Day vs. Time)
+-- Business Objective: Create a pivot-style matrix of order volume by Day of Week and Time of Day to identify the absolute peak shopping windows for server scaling.
+SELECT 
+    order_dow AS day_of_week,
+    SUM(CASE WHEN order_hour_of_day BETWEEN 6 AND 11 THEN 1 ELSE 0 END) AS morning_orders,
+    SUM(CASE WHEN order_hour_of_day BETWEEN 12 AND 16 THEN 1 ELSE 0 END) AS afternoon_orders,
+    SUM(CASE WHEN order_hour_of_day BETWEEN 17 AND 21 THEN 1 ELSE 0 END) AS evening_orders,
+    SUM(CASE WHEN order_hour_of_day >= 22 OR order_hour_of_day <= 5 THEN 1 ELSE 0 END) AS night_orders
+FROM orders
+GROUP BY 
+    order_dow
+ORDER BY 
+    order_dow ASC;
+
+
+-- Business Question 47: The "Trial" Basket (Order Number 1 Composition)
+-- Business Objective: What do users buy on their very first order? Understanding the "trial" basket helps marketing design the perfect introductory discount bundle.
+SELECT 
+    d.department,
+    COUNT(op.product_id) AS items_in_first_orders
+FROM orders o
+INNER JOIN order_products op 
+    ON o.order_id = op.order_id
+INNER JOIN products p 
+    ON op.product_id = p.product_id
+INNER JOIN departments d 
+    ON p.department_id = d.department_id
+WHERE 
+    o.order_number = 1
+GROUP BY 
+    d.department
+ORDER BY 
+    items_in_first_orders DESC;
