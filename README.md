@@ -115,5 +115,3 @@ streamlit run app/app.py
 7. **Open Power BI:** Open the `.pbix` file in the `/powerbi` folder and update the data source settings to point to your local PostgreSQL instance.
 
 ```
-
-```
