@@ -1,5 +1,4 @@
-```markdown
-# 🛒 Instacart Market Basket Analysis
+##  Instacart Market Basket Analysis.
 
 ## 📖 Project Overview
 This project transforms a massive, raw relational database of grocery orders into actionable business insights. Using advanced PostgreSQL techniques, Python-based Data Analytics, and Power BI, this repository demonstrates an end-to-end data pipeline designed to answer critical business questions regarding customer loyalty, product volume, and purchasing affinity. 
@@ -30,14 +29,13 @@ This project was built using a comprehensive data pipeline from raw ingestion to
 4.  **Interactive Web App:** Deployed a custom Streamlit web dashboard allowing users to query the 50,000-item catalog and instantly see data-driven cross-selling recommendations.
 5.  **Executive Dashboarding:** Connected Power BI directly to the PostgreSQL database to design an interactive dashboard that communicates volume and loyalty metrics visually.
 
----
 
 ## 📊 Executive Dashboard
 *(The interactive Power BI dashboard provides a top-level view of department performance and customer reorder rates.)*
 
 ![Instacart Dashboard Overview](screenshots/dashboard_overview.png)
 
----
+
 
 ## 💡 Key Business Questions Answered
 This repository contains the logic and scripts designed to answer real-world retail operations questions:
