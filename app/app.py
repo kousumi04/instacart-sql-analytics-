@@ -1,67 +1,55 @@
 import streamlit as st
 import pandas as pd
-import joblib
 import os
 import random
 
 # 1. Page Configuration
-st.set_page_config(page_title="Instacart Recommendation Engine", layout="wide")
+st.set_page_config(page_title="Instacart Market Analytics", layout="wide")
 
-# 2. Load Data and Models
+# 2. Load Static DA Data
 @st.cache_data 
-def load_rules():
-    model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'association_rules.pkl')
+def load_da_data():
+    base_dir = os.path.dirname(__file__)
+    data_path = os.path.join(base_dir, '..', 'data', 'da_recommendations.csv')
     try:
-        return joblib.load(model_path)
+        return pd.read_csv(data_path)
     except FileNotFoundError:
-        st.error("Model file not found. Please run train_model.py first.")
+        st.error("Data file not found. Please run build_da_tables.py first.")
         return pd.DataFrame()
 
 @st.cache_data
 def load_catalog():
     base_dir = os.path.dirname(__file__)
-    prod_path = os.path.join(base_dir, '..', 'data', 'products.csv')
-    dept_path = os.path.join(base_dir, '..', 'data', 'departments.csv')
+    data_dir = os.path.join(base_dir, '..', 'data')
     try:
-        products = pd.read_csv(prod_path)
-        departments = pd.read_csv(dept_path)
+        products = pd.read_csv(os.path.join(data_dir, 'products.csv'))
+        departments = pd.read_csv(os.path.join(data_dir, 'departments.csv'))
         catalog = pd.merge(products, departments, on='department_id', how='inner')
         return catalog[['product_name', 'department']]
     except FileNotFoundError:
-        st.error("Data files not found.")
+        st.error("Catalog files not found.")
         return pd.DataFrame()
 
-rules = load_rules()
+da_rules = load_da_data()
 catalog = load_catalog()
 
-# 3. Sidebar UI (The Sliders)
-st.sidebar.header("⚙️ Algorithm Adjustments")
-
-st.sidebar.markdown("**Likelihood (Confidence)**")
-st.sidebar.caption("If they buy the selected item, what is the minimum percentage chance they buy the recommended item?")
-min_confidence = st.sidebar.slider("Minimum Likelihood (%)", min_value=1, max_value=100, value=5, step=1)
+# 3. Sidebar UI (DA Filters instead of ML tuning)
+st.sidebar.header("📊 Analytics Filters")
+st.sidebar.markdown("Filter historical purchase data.")
 
 st.sidebar.write("---")
-
-st.sidebar.markdown("**Strength Multiplier (Lift)**")
-st.sidebar.caption("How many times *more* likely are they to buy these together compared to random chance?")
-min_lift = st.sidebar.slider("Minimum Strength (x)", min_value=1.0, max_value=20.0, value=1.0, step=0.5)
+min_basket_share = st.sidebar.slider("Minimum Basket Share (%)", min_value=0.0, max_value=20.0, value=0.0, step=0.5,
+                                     help="What percentage of orders with the main item also included the paired item?")
 
 # 4. Main Page UI
-st.title("🛒 Instacart Recommendation Engine")
-st.markdown("Select a product to instantly generate data-driven cross-selling recommendations.")
+st.title("🛒 Instacart Co-Purchase Analytics")
+st.markdown("Analyze historical shopping carts to discover the most frequently paired products.")
 
 if not catalog.empty:
     st.write("---")
     
-    # Dual Search Workflows (Cleanly integrated)
-    search_mode = st.radio(
-        "Search Method:", 
-        ["🔍 Global Search (Search all 50,000 items)", "📁 Browse by Department"], 
-        horizontal=True
-    )
-    
-    st.subheader("What is in your cart?")
+    search_mode = st.radio("Search Method:", ["🔍 Global Search", "📁 Browse by Department"], horizontal=True)
+    st.subheader("Select a target product:")
     
     selected_item = None
     selected_dept = None
@@ -75,13 +63,25 @@ if not catalog.empty:
             dept_products = sorted(catalog[catalog['department'] == selected_dept]['product_name'].tolist())
             selected_item = st.selectbox("2. Search for a product:", dept_products)
             
-    elif search_mode == "🔍 Global Search (Search all 50,000 items)":
-        global_query = st.text_input("Search for a product:", placeholder="e.g., Grated Parmesan, Banana, Organic Milk...")
+    elif search_mode == "🔍 Global Search":
+        global_query = st.text_input("Search catalog:", placeholder="e.g., Grated Parmesan, Banana...")
         
         if global_query:
-            filtered_df = catalog[catalog['product_name'].str.contains(global_query, case=False, na=False)]
-            filtered_products = sorted(filtered_df['product_name'].tolist())
+            filtered_df = catalog[catalog['product_name'].str.contains(global_query, case=False, na=False)].copy()
             
+            # Relevance Engine
+            lower_query = global_query.lower()
+            def score_relevance(name):
+                name_lower = name.lower()
+                if name_lower == lower_query: return 1
+                elif name_lower.startswith(lower_query): return 2
+                else: return 3
+            
+            filtered_df['relevance'] = filtered_df['product_name'].apply(score_relevance)
+            filtered_df['name_length'] = filtered_df['product_name'].str.len()
+            filtered_df = filtered_df.sort_values(by=['relevance', 'name_length', 'product_name'])
+            
+            filtered_products = filtered_df['product_name'].tolist()
             if filtered_products:
                 selected_item = st.selectbox("Select exact item:", filtered_products)
                 selected_dept = catalog[catalog['product_name'] == selected_item]['department'].values[0]
@@ -90,38 +90,33 @@ if not catalog.empty:
 
     st.write("---")
 
-    # 5. Recommendation Engine Logic (The layout from your screenshot)
+    # 5. Data Analytics Display
     if selected_item:
-        st.subheader(f"Because you bought {selected_item}, you might also like:")
+        st.subheader(f"Historical Data: Customers who bought {selected_item} also bought:")
         
         recommendations = pd.DataFrame()
-        if not rules.empty:
-            recommendations = rules[rules['antecedents'].apply(lambda x: selected_item in x)]
-            recommendations = recommendations[
-                (recommendations['confidence'] >= (min_confidence / 100.0)) & 
-                (recommendations['lift'] >= min_lift)
-            ]
+        if not da_rules.empty:
+            recommendations = da_rules[da_rules['item_a'] == selected_item]
+            recommendations = recommendations[recommendations['basket_share_pct'] >= min_basket_share]
         
         if not recommendations.empty:
-            top_recs = recommendations.head(5)
-            
-            for index, row in top_recs.iterrows():
-                rec_item = list(row['consequents'])[0]
-                confidence = round(row['confidence'] * 100, 1)
-                lift = round(row['lift'], 2)
+            for index, row in recommendations.iterrows():
+                rec_item = row['item_b']
+                co_purchases = int(row['co_purchase_count'])
+                basket_share = row['basket_share_pct']
                 
                 col1, col2, col3 = st.columns([3, 1, 1])
                 with col1:
-                    st.success(f"**{rec_item}**")  # The green box you liked
+                    st.success(f"**{rec_item}**") 
                 with col2:
-                    st.metric("Likelihood", f"{confidence}%")
+                    st.metric("Total Co-Purchases", f"{co_purchases:,}")
                 with col3:
-                    st.metric("Strength Multiplier", f"{lift}x")
+                    st.metric("Basket Share", f"{basket_share}%")
 
         else:
-            # Fallback logic if there is no data
-            st.info(f"We don't have enough data to make a strong recommendation for '{selected_item}' right now.")
-            st.markdown(f"#### 🌟 While you're in the **{selected_dept}** aisle, check these out:")
+            # Descriptive Analytics Fallback
+            st.info(f"We don't have enough historical co-purchase records for '{selected_item}'.")
+            st.markdown(f"#### 🌟 Most popular items in the **{selected_dept}** department:")
             
             dept_items = catalog[catalog['department'] == selected_dept]['product_name'].tolist()
             if len(dept_items) >= 3:
